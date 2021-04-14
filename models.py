@@ -1,7 +1,7 @@
-import torchvision.models as backbones
-
+import time
 import torch
 import torch.nn as nn
+import torchvision.models as backbones
 
 BACKBONES = ['resnet50', 'resnet34', 'resnet18']
 
@@ -33,6 +33,7 @@ class DETRv1(nn.Module):
         self.col_embed = nn.Parameter(torch.rand(50, hidden_dim // 2))
 
     def forward(self, x):
+        s_time = time.time()
         x = self.backbone.conv1(x)
         x = self.backbone.bn1(x)
         x = self.backbone.relu(x)
@@ -42,7 +43,9 @@ class DETRv1(nn.Module):
         x = self.backbone.layer2(x)
         x = self.backbone.layer3(x)
         x = self.backbone.layer4(x)
+        b_time = time.time() - s_time
 
+        s_time = time.time()
         x = self.conv(x)
         H, W = x.shape[-2:]
         pos = torch.cat([
@@ -52,6 +55,8 @@ class DETRv1(nn.Module):
 
         x = self.transformer(pos + 0.1 * x.flatten(2).permute(2, 0, 1),
                              self.query_pos.unsqueeze(1)).transpose(0, 1)
-        
+        t_time = time.time() - s_time
+
         return {'classes': self.fc_class(x),
-                'bboxes': self.fc_bbox(x).sigmoid()}
+                'bboxes': self.fc_bbox(x).sigmoid(),
+                'info': {'b_time': b_time, 't_time': t_time}}
