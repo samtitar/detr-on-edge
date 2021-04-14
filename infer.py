@@ -126,7 +126,7 @@ if __name__ == '__main__':
         else:
             raise ValueError(f'Invalid output {args.output}')
 
-    if len(inference_times) > 0:
+    if len(b_times) > 0:
         print(f'Average backbone time: {np.mean(b_times)}')
         print(f'Average transformer time: {np.mean(t_times)}')
     else:
