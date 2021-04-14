@@ -5,16 +5,46 @@ import torchvision.models as backbones
 
 BACKBONES = ['resnet50', 'resnet34', 'resnet18']
 
+class ResnetWrap(nn.Module):
+    def __init__(self, backbone='resnet_50'):
+
+        assert backbone in BACKBONES, f'Invalid backbone {backbone}, select from: {BACKBONES}'
+        super().__init__()
+
+        backbone = getattr(backbones, backbone)()
+
+        self.conv1 = backbone.conv1
+        self.bn1 = backbone.bn1
+        self.relu = backbone.relu
+        self.maxpool = backbone.maxpool
+
+        self.layer1 = backbone.layer1
+        self.layer2 = backbone.layer2
+        self.layer3 = backbone.layer3
+        self.layer4 = backbone.layer4
+    
+    def forward(self, x):
+        x = self.conv1(x)
+        x = self.bn1(x)
+        x = self.relu(x)
+        x = self.maxpool(x)
+
+        x = self.layer1(x)
+        x = self.layer2(x)
+        x = self.layer3(x)
+        x = self.layer4(x)
+        
+        return x
+
 class DETRv1(nn.Module):
     def __init__(self, num_classes, hidden_dim=256, nheads=8,
                  num_encoder_layers=6, num_decoder_layers=6,
                  backbone='resnet50'):
         
         assert backbone in BACKBONES, f'Invalid backbone {backbone}, select from: {BACKBONES}'
-
         super().__init__()
-        self.backbone = getattr(backbones, backbone)()
-        del self.backbone.fc
+
+        self.backbone = ResnetWrap(backbone)
         
         if backbone == 'resnet50':
             self.conv = nn.Conv2d(2048, hidden_dim, 1)
@@ -34,15 +64,7 @@ class DETRv1(nn.Module):
 
     def forward(self, x):
         s_time = time.time()
-        x = self.backbone.conv1(x)
-        x = self.backbone.bn1(x)
-        x = self.backbone.relu(x)
-        x = self.backbone.maxpool(x)
-
-        x = self.backbone.layer1(x)
-        x = self.backbone.layer2(x)
-        x = self.backbone.layer3(x)
-        x = self.backbone.layer4(x)
+        x = self.backbone(x)
         b_time = time.time() - s_time
 
         s_time = time.time()
