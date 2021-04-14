@@ -1,1 +1,1 @@
-# detr-on-edge
+# End-to-End Object Detection with Transformers on Edge Devices
