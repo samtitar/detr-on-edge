@@ -31,6 +31,8 @@ CLASSES = [
 COLORS = [[0.000, 0.447, 0.741], [0.850, 0.325, 0.098], [0.929, 0.694, 0.125],
           [0.494, 0.184, 0.556], [0.466, 0.674, 0.188], [0.301, 0.745, 0.933]]
 
+DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
+
 def box_cxcywh_to_xyxy(x):
     x_c, y_c, w, h = x.unbind(1)
     b = [(x_c - 0.5 * w), (y_c - 0.5 * h),
@@ -48,11 +50,11 @@ def detect(im, model, transform):
 
     assert img.shape[-2] <= 1600 and img.shape[-1] <= 1600, 'DETR model only supports images up to 1600 pixels on each side'
 
-    outputs = model(img)
-    probas = outputs['classes'].softmax(-1)[0, :, :-1]
+    outputs = model(img.to(DEVICE))
+    probas = outputs['classes'].cpu().softmax(-1)[0, :, :-1]
     mask = probas.max(-1).values > 0.7
 
-    bboxes_scaled = rescale_bboxes(outputs['bboxes'][0, mask], im.size)
+    bboxes_scaled = rescale_bboxes(outputs['bboxes'].cpu()[0, mask], im.size)
     return probas[mask], bboxes_scaled, outputs['info']
 
 def plot_results(pil_img, prob, boxes):
@@ -75,7 +77,7 @@ if __name__ == '__main__':
     parser.add_argument('--backbone', type=str, default='resnet50')
     args = parser.parse_args()
 
-    model = DETRv1(num_classes=91, backbone=args.backbone)
+    model = DETRv1(num_classes=91, backbone=args.backbone).to(DEVICE)
     model.eval()
 
     transform = T.Compose([
