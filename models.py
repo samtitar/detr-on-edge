@@ -65,11 +65,12 @@ class DETRv1(nn.Module):
     def forward(self, x):
         s_time = time.time()
         x = self.backbone(x)
-        b_time = time.time() - s_time
+        self.b_time = time.time() - s_time
 
         s_time = time.time()
         x = self.conv(x)
         H, W = x.shape[-2:]
+
         pos = torch.cat([
             self.col_embed[:W].unsqueeze(0).repeat(H, 1, 1),
             self.row_embed[:H].unsqueeze(1).repeat(1, W, 1),
@@ -77,8 +78,6 @@ class DETRv1(nn.Module):
 
         x = self.transformer(pos + 0.1 * x.flatten(2).permute(2, 0, 1),
                              self.query_pos.unsqueeze(1)).transpose(0, 1)
-        t_time = time.time() - s_time
-
-        return {'classes': self.fc_class(x),
-                'bboxes': self.fc_bbox(x).sigmoid(),
-                'info': {'b_time': b_time, 't_time': t_time}}
+        self.t_time = time.time() - s_time
+        
+        return self.fc_class(x), self.fc_bbox(x).sigmoid()
