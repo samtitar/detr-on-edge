@@ -1,3 +1,4 @@
+import time
 import argparse
 import numpy as np
 import onnxruntime as ort
@@ -13,4 +14,7 @@ if __name__ == '__main__':
     input_name = model.get_inputs()[0].name
     class_name = model.get_outputs()[0].name
     bbox_name = model.get_outputs()[1].name
+
+    st = time.time()
     pred_onx = model.run([class_name, bbox_name], {input_name: X})
+    print(time.time() - st)

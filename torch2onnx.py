@@ -14,7 +14,7 @@ import numpy as np
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--outdir', type=str, required=True)
-    parser.add_argument('--split', type=bool, required=True)
+    parser.add_argument('--split', action='store_true')
     parser.add_argument('--backbone', type=str, default='resnet50')
     args = parser.parse_args()
 
@@ -24,9 +24,9 @@ if __name__ == '__main__':
         
         dynamic_axes = {'image': {0: 'batch', 2: 'width', 3: 'height'},
                         'class': {0: 'batch'}, 'bbox': {0: 'batch'}}
-        
+
         torch.onnx.export(model, in_tensor, f'{args.outdir}/detr.onnx',
-                          input_names=['inputs'], output_names=['class', 'bbox'],
+                          input_names=['image'], output_names=['class', 'bbox'],
                           dynamic_axes=dynamic_axes, opset_version=10)
     
     if args.split == True:

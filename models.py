@@ -88,12 +88,6 @@ class DETRv1(nn.Module):
                                            backbone)
 
     def forward(self, x):
-        s_time = time.time()
         x = self.backbone(x)
-        self.b_time = time.time() - s_time
-
-        s_time = time.time()
-        x = self.interpreter
-        self.t_time = time.time() - s_time
-        
+        x = self.interpreter(x)
         return x
