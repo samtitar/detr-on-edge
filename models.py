@@ -36,7 +36,7 @@ class ResnetWrap(nn.Module):
         
         return x
 
-class DETRv1(nn.Module):
+class InterpreterWrap(nn.Module):
     def __init__(self, num_classes, hidden_dim=256, nheads=8,
                  num_encoder_layers=6, num_decoder_layers=6,
                  backbone='resnet50'):
@@ -44,8 +44,6 @@ class DETRv1(nn.Module):
         assert backbone in BACKBONES, f'Invalid backbone {backbone}, select from: {BACKBONES}'
         super().__init__()
 
-        self.backbone = ResnetWrap(backbone)
-        
         if backbone == 'resnet50':
             self.conv = nn.Conv2d(2048, hidden_dim, 1)
         elif backbone == 'resnet34' or backbone == 'resnet18':
@@ -63,11 +61,6 @@ class DETRv1(nn.Module):
         self.col_embed = nn.Parameter(torch.rand(50, hidden_dim // 2))
 
     def forward(self, x):
-        s_time = time.time()
-        x = self.backbone(x)
-        self.b_time = time.time() - s_time
-
-        s_time = time.time()
         x = self.conv(x)
         H, W = x.shape[-2:]
 
@@ -78,6 +71,29 @@ class DETRv1(nn.Module):
 
         x = self.transformer(pos + 0.1 * x.flatten(2).permute(2, 0, 1),
                              self.query_pos.unsqueeze(1)).transpose(0, 1)
+
+        return self.fc_class(x), self.fc_bbox(x).sigmoid()
+
+class DETRv1(nn.Module):
+    def __init__(self, num_classes, hidden_dim=256, nheads=8,
+                 num_encoder_layers=6, num_decoder_layers=6,
+                 backbone='resnet50'):
+        
+        assert backbone in BACKBONES, f'Invalid backbone {backbone}, select from: {BACKBONES}'
+        super().__init__()
+
+        self.backbone = ResnetWrap(backbone)
+        self.interpreter = InterpreterWrap(num_classes, hidden_dim, nheads,
+                                           num_encoder_layers, num_decoder_layers,
+                                           backbone)
+
+    def forward(self, x):
+        s_time = time.time()
+        x = self.backbone(x)
+        self.b_time = time.time() - s_time
+
+        s_time = time.time()
+        x = self.interpreter
         self.t_time = time.time() - s_time
         
-        return self.fc_class(x), self.fc_bbox(x).sigmoid()
+        return x
