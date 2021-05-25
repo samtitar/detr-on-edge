@@ -81,8 +81,9 @@ if __name__ == '__main__':
             req.wait()
 
             # Receive results from remote
-            req = comm.irecv(source=0, tag=11)
+            req = comm.irecv(51200, source=1, tag=11)
             data = req.wait()
+            print(data)
         elif args.mode == 1:
             # Send data to remote
             data = np.zeros((1, 3, 224, 224)).astype(np.float32)
@@ -90,7 +91,7 @@ if __name__ == '__main__':
             req.wait()
 
             # Receive features from remote
-            req = comm.irecv(source=0, tag=11)
+            req = comm.irecv(51200, source=1, tag=11)
             data = req.wait()
 
             # Get results from features
@@ -102,7 +103,7 @@ if __name__ == '__main__':
             model = build_onnx_trt(args.onnx_rem)
 
         # Receive data or features from remote
-        req = comm.irecv(401578, source=0, tag=11)
+        req = comm.irecv(51200, source=0, tag=11)
         data = req.wait()
 
         # Get features or results from data or features
