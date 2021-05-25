@@ -4,6 +4,8 @@ import argparse
 import numpy as np
 from mpi4py import MPI
 
+BUFF_SIZE = 512000
+
 def build_onnx_trt(model_path):
     import tensorrt as trt
 
@@ -81,7 +83,7 @@ if __name__ == '__main__':
             req.wait()
 
             # Receive results from remote
-            req = comm.irecv(51200, source=1, tag=11)
+            req = comm.irecv(BUFF_SIZE, source=1, tag=11)
             data = req.wait()
             print(data)
         elif args.mode == 1:
@@ -91,7 +93,7 @@ if __name__ == '__main__':
             req.wait()
 
             # Receive features from remote
-            req = comm.irecv(51200, source=1, tag=11)
+            req = comm.irecv(BUFF_SIZE, source=1, tag=11)
             data = req.wait()
 
             # Get results from features
@@ -103,7 +105,7 @@ if __name__ == '__main__':
             model = build_onnx_trt(args.onnx_rem)
 
         # Receive data or features from remote
-        req = comm.irecv(51200, source=0, tag=11)
+        req = comm.irecv(BUFF_SIZE, source=0, tag=11)
         data = req.wait()
 
         # Get features or results from data or features
