@@ -11,10 +11,10 @@ if __name__ == '__main__':
     X = np.zeros((1, 2048, 16, 16)).astype(np.float32)
     # X = np.zeros((1, 3, 512, 512)).astype(np.float32)
     model = ort.InferenceSession(args.model)
-    input_name = model.get_inputs()[0].name
-    class_name = model.get_outputs()[0].name
-    bbox_name = model.get_outputs()[1].name
+
+    inputs = [e.name for e in model.get_inputs()]
+    outputs = [e.name for e in model.get_outputs()]
 
     st = time.time()
-    pred_onx = model.run([class_name, bbox_name], {input_name: X})
+    pred_onx = model.run(outputs, {inputs[0]: X})
     print(time.time() - st)
