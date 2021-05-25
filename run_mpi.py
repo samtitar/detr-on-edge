@@ -63,14 +63,15 @@ if __name__ == '__main__':
 
     comm = MPI.COMM_WORLD
     rank = comm.Get_rank()
-    
+    print(rank)
+
     if rank == 0:
         if args.runtime_loc == 'cud':
             model = build_onnx_cud(args.onnx_loc)
         if args.runtime_loc == 'trt':
             model = build_onnx_trt(args.onnx_loc)
 
-        data = model(np.zeros((1, 3, 512, 512)).astype(np.float32))
+        data = model(np.zeros((1, 3, 224, 224)).astype(np.float32))
         req = comm.isend(data, dest=1, tag=11)
         req.wait()
     elif rank == 1:
