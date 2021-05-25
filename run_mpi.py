@@ -55,6 +55,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     # parser.add_argument('--input', type=str, required=True)
     # parser.add_argument('--output', type=str, required=True)
+    parser.add_argument('--mode', type=int, required=True)
     parser.add_argument('--onnx-loc', type=str, required=True)
     parser.add_argument('--onnx-rem', type=str, required=True)
     parser.add_argument('--runtime-loc', type=str, required=True)
@@ -63,28 +64,50 @@ if __name__ == '__main__':
 
     comm = MPI.COMM_WORLD
     rank = comm.Get_rank()
-    print(rank)
 
     if rank == 0:
         if args.runtime_loc == 'cud':
             model = build_onnx_cud(args.onnx_loc)
         if args.runtime_loc == 'trt':
             model = build_onnx_trt(args.onnx_loc)
+        
+        if args.mode == 0:
+            # Get features from input
+            data = np.zeros((1, 3, 224, 224)).astype(np.float32)
+            data = model(data)
 
-        data = model(np.zeros((1, 3, 224, 224)).astype(np.float32))
-        req = comm.isend(data, dest=1, tag=11)
-        req.wait()
+            # Send features to remote
+            req = comm.isend(data, dest=1, tag=11)
+            req.wait()
+
+            # Receive results from remote
+            req = comm.irecv(source=0, tag=11)
+            data = req.wait()
+        elif args.mode == 1:
+            # Send data to remote
+            data = np.zeros((1, 3, 224, 224)).astype(np.float32)
+            req = comm.isend(data, dest=1, tag=11)
+            req.wait()
+
+            # Receive features from remote
+            req = comm.irecv(source=0, tag=11)
+            data = req.wait()
+
+            # Get results from features
+            data = model(data)
     elif rank == 1:
         if args.runtime_rem == 'cud':
             model = build_onnx_cud(args.onnx_rem)
         if args.runtime_rem == 'trt':
             model = build_onnx_trt(args.onnx_rem)
-        
-        with open('tmp.txt', 'r') as f:
-            print(f.readline())
 
+        # Receive data or features from remote
         req = comm.irecv(401578, source=0, tag=11)
         data = req.wait()
-        result = model(data[0])
-        print(result[0].shape)
-        print(result[1].shape)
+
+        # Get features or results from data or features
+        data = model(data[0])
+
+        # Send features or results to remote
+        req =  comm.isend(data, dest=0, tag=11)
+        req.wait()
