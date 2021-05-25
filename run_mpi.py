@@ -108,7 +108,10 @@ if __name__ == '__main__':
         data = req.wait()
 
         # Get features or results from data or features
-        data = model(data[0])
+        if args.mode == 0:
+            data = model(data[0])
+        elif args.mode == 1:
+            data = model(data)
 
         # Send features or results to remote
         req =  comm.isend(data, dest=0, tag=11)
