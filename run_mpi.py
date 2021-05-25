@@ -1,9 +1,8 @@
+#!venv/bin/python3
+
 import argparse
 import numpy as np
 from mpi4py import MPI
-
-comm = MPI.COMM_WORLD
-rank = comm.Get_rank()
 
 def build_onnx_trt(model_path):
     import tensorrt as trt
@@ -62,13 +61,16 @@ if __name__ == '__main__':
     parser.add_argument('--runtime-rem', type=str, required=True)
     args = parser.parse_args()
 
+    comm = MPI.COMM_WORLD
+    rank = comm.Get_rank()
+    
     if rank == 0:
         if args.runtime_loc == 'cud':
             model = build_onnx_cud(args.onnx_loc)
         if args.runtime_loc == 'trt':
             model = build_onnx_trt(args.onnx_loc)
 
-        data = model(np.zeros((1, 3, 224, 224)).astype(np.float32))
+        data = model(np.zeros((1, 3, 512, 512)).astype(np.float32))
         req = comm.isend(data, dest=1, tag=11)
         req.wait()
     elif rank == 1:
@@ -76,8 +78,12 @@ if __name__ == '__main__':
             model = build_onnx_cud(args.onnx_rem)
         if args.runtime_rem == 'trt':
             model = build_onnx_trt(args.onnx_rem)
+        
+        with open('tmp.txt', 'r') as f:
+            print(f.readline())
 
-        req = comm.irecv(source=0, tag=11)
+        req = comm.irecv(401578, source=0, tag=11)
         data = req.wait()
-        result = model(data)
-        print(result)
+        result = model(data[0])
+        print(result[0].shape)
+        print(result[1].shape)
