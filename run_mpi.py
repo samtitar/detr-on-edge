@@ -96,7 +96,7 @@ if __name__ == '__main__':
             data = req.wait()
 
             # Get results from features
-            data = model(data)
+            data = model(data[0])
     elif rank == 1:
         if args.runtime_rem == 'cud':
             model = build_onnx_cud(args.onnx_rem)
