@@ -28,6 +28,7 @@ def get_args():
     parser.add_argument('--lr-drop', default=200, type=int)
 
     parser.add_argument('--backbone', type=str, default='resnet50')
+    parser.add_argument('--cos-loss', action='store_true')
 
     parser.add_argument('--coco-path', type=str)
     # parser.add_argument('--remove_difficult', action='store_true')
@@ -106,7 +107,7 @@ def main(args):
     val_loader = DataLoader(val_data, batch_size=args.batch_size,
                             collate_fn=collate_fn, num_workers=args.num_workers)
 
-    backbone_target = ResnetWrap(arch='resnet50').to(device)
+    backbone_target = ResnetWrap().to(device)
     backbone = ResnetWrap(arch=args.backbone, pretrained=True).to(device)
     interpreter = InterpreterWrap(91, backbone=args.backbone).to(device)
 
@@ -114,14 +115,14 @@ def main(args):
     lr_scheduler = optim.lr_scheduler.StepLR(optimizer, args.lr_drop)
     
     criterion1 = get_criterion(91, args).to(device)
-    criterion2 = nn.MSELoss()
+    criterion2 = nn.CosineEmbeddingLoss() if args.cos_loss else nn.MSELoss()
     postprocess = PostProcess()
 
     detr_sd = torch.hub.load_state_dict_from_url(
         url='https://dl.fbaipublicfiles.com/detr/detr_demo-da2a99e9.pth',
         map_location='cpu', check_hash=True)
-    
-    back_sd = {k.replace('backbone.', ''): v for k, v in detr_sd.items() if k.replace('backbone.', '') in backbone.state_dict()}
+
+    back_sd = {k.replace('backbone.', ''): v for k, v in detr_sd.items() if k.replace('backbone.', '') in backbone_target.state_dict()}
     interp_sd = {k: v for k, v in detr_sd.items() if k in interpreter.state_dict()}
     backbone_target.load_state_dict(back_sd)
     interpreter.load_state_dict(interp_sd)
@@ -141,7 +142,11 @@ def main(args):
             with torch.no_grad():
                 y_tar = backbone_target(samples)
 
-            loss = sum(criterion2(y1, y2) for y1, y2 in zip(y_hat, y_tar))
+            if args.cos_loss:
+                sim = [torch.ones(y1.shape[-1]).cuda() for y1 in y_hat]
+                loss = sum(criterion2(y1, y2, s) for y1, y2, s in zip(y_hat, y_tar, sim))
+            else:
+                loss = sum(criterion2(y1, y2) for y1, y2 in zip(y_hat, y_tar))
 
             optimizer.zero_grad()
             loss.backward()
