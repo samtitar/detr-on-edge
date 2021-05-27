@@ -95,7 +95,7 @@ def main(args):
     device = args.device
 
     wandb.init(project='detr-on-edge')
-    wandb.config.update({**{'method': 'embedding'}, **args})
+    wandb.config.update({**{'method': 'embedding'}, **vars(args)})
 
     t_transform, v_transform = get_transforms()
     train_data = CocoDetection(f'{args.coco_path}/train2017', f'{args.coco_path}/annotations/instances_train2017.json', t_transform, False)
