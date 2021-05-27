@@ -1,10 +1,13 @@
+import time
 import wandb
 import argparse
 
 import torch
+import torch.nn as nn
 import torch.optim as optim
 import facebookresearch.datasets.transforms as T
 
+from tqdm import tqdm
 from torch.utils.data import DataLoader
 from models import ResnetWrap, InterpreterWrap
 
@@ -12,9 +15,9 @@ from facebookresearch.datasets.coco import CocoDetection
 from facebookresearch.models.matcher import HungarianMatcher
 from facebookresearch.models.detr import SetCriterion, PostProcess
 
-def collate_fn(batch):
-    batch = list(zip(*batch))
-    return tuple(batch)
+from torchvision.ops import box_iou
+from sklearn.metrics import average_precision_score
+
 
 def get_args():
     parser = argparse.ArgumentParser()
@@ -44,6 +47,11 @@ def get_args():
     parser.add_argument('--giou-loss-coef', default=2, type=float)
     parser.add_argument('--eos-coef', default=0.1, type=float)
     return parser.parse_args()
+
+
+def collate_fn(batch):
+    batch = list(zip(*batch))
+    return tuple(batch)
 
 
 def get_transforms():
@@ -83,12 +91,11 @@ def get_criterion(num_classes, args):
     return SetCriterion(num_classes, matcher=matcher, eos_coef=args.eos_coef,
                         weight_dict=weight_dict, losses=losses)
 
-
 def main(args):
     device = args.device
 
     wandb.init(project='detr-on-edge')
-    wandb.config.update(args)
+    wandb.config.update({**{'method': 'embedding'}, **args})
 
     t_transform, v_transform = get_transforms()
     train_data = CocoDetection(f'{args.coco_path}/train2017', f'{args.coco_path}/annotations/instances_train2017.json', t_transform, False)
@@ -99,47 +106,61 @@ def main(args):
     val_loader = DataLoader(val_data, batch_size=args.batch_size,
                             collate_fn=collate_fn, num_workers=args.num_workers)
 
+    backbone_target = ResnetWrap(arch='resnet50').to(device)
     backbone = ResnetWrap(arch=args.backbone, pretrained=True).to(device)
     interpreter = InterpreterWrap(91, backbone=args.backbone).to(device)
-    for p in interpreter.parameters():
-        p.requires_grad = False
 
     optimizer = optim.AdamW(backbone.parameters(), lr=args.lr, weight_decay=args.weight_decay)
     lr_scheduler = optim.lr_scheduler.StepLR(optimizer, args.lr_drop)
     
-    criterion = get_criterion(91, args).to(device)
-    postprocessors = {'bbox': PostProcess()}
+    criterion1 = get_criterion(91, args).to(device)
+    criterion2 = nn.MSELoss()
+    postprocess = PostProcess()
 
-    state_dict = torch.hub.load_state_dict_from_url(
+    detr_sd = torch.hub.load_state_dict_from_url(
         url='https://dl.fbaipublicfiles.com/detr/detr_demo-da2a99e9.pth',
         map_location='cpu', check_hash=True)
     
-    state_dict = {k: v for k, v in state_dict.items() if k in interpreter.state_dict()}
-    interpreter.load_state_dict(state_dict)
+    back_sd = {k.replace('backbone.', ''): v for k, v in detr_sd.items() if k.replace('backbone.', '') in backbone.state_dict()}
+    interp_sd = {k: v for k, v in detr_sd.items() if k in interpreter.state_dict()}
+    backbone_target.load_state_dict(back_sd)
+    interpreter.load_state_dict(interp_sd)
+
+    backbone_target.eval()
+    interpreter.eval()
+
+    pbar = tqdm(total=args.epochs * len(train_loader) * args.batch_size)
 
     n_data, next_log = 0, 0
     for epoch in range(args.epochs):
         for samples, targets in train_loader:
             samples = [s.to(device) for s in samples]
             targets = [{k: v.to(device) for k, v in t.items()} for t in targets]
-
+            
             y_hat = backbone(samples)
-            y_hat = interpreter(y_hat)
-            y_hat = {'pred_logits': y_hat[0], 'pred_boxes': y_hat[1]}
+            with torch.no_grad():
+                y_tar = backbone_target(samples)
 
-            loss_dict = criterion(y_hat, targets)
-            weight_dict = criterion.weight_dict
-            loss = sum(loss_dict[k] * weight_dict[k] for k in loss_dict.keys() if k in weight_dict)
+            loss = sum(criterion2(y1, y2) for y1, y2 in zip(y_hat, y_tar))
 
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
 
             if next_log < 1:
+                y_hat = interpreter(y_hat)
+                y_hat = {'pred_logits': y_hat[0], 'pred_boxes': y_hat[1]}
+                
+                loss_dict = criterion1(y_hat, targets)
+                weight_dict = criterion1.weight_dict
+                loss = sum(loss_dict[k] * weight_dict[k] for k in loss_dict.keys() if k in weight_dict)
+
                 step_dict = {'n_data': n_data, 'loss': loss.item()}
                 wandb.log({**step_dict, **loss_dict})
+                torch.save(backbone.state_dict(), f'{wandb.run.dir}/backbone_{epoch}.pt')
                 next_log += 500
-
+            
+            pbar.update(args.batch_size)
             n_data += args.batch_size
             next_log -= args.batch_size
         lr_scheduler.step()
