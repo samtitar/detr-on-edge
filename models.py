@@ -24,9 +24,9 @@ class ResnetWrap(nn.Module):
         self.layer4 = backbone.layer4
 
         if arch == 'resnet50':
-            self.conv2 = nn.Conv2d(2048, hidden_dim, 1)
+            self.conv = nn.Conv2d(2048, hidden_dim, 1)
         elif arch == 'resnet34' or arch == 'resnet18':
-            self.conv2 = nn.Conv2d(512, hidden_dim, 1)
+            self.conv = nn.Conv2d(512, hidden_dim, 1)
     
     def forward(self, x):
         if isinstance(x, list):
@@ -41,7 +41,7 @@ class ResnetWrap(nn.Module):
         x = self.layer2(x)
         x = self.layer3(x)
         x = self.layer4(x)
-        x = self.conv2(x)
+        x = self.conv(x)
         
         return x
 
