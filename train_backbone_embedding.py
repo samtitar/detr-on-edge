@@ -115,7 +115,7 @@ def main(args):
     lr_scheduler = optim.lr_scheduler.StepLR(optimizer, args.lr_drop)
     
     criterion1 = get_criterion(91, args).to(device)
-    criterion2 = nn.CosineEmbeddingLoss() if args.cos_loss else nn.MSELoss()
+    criterion2 = nn.CosineEmbeddingLoss() if args.cos_loss else nn.L1Loss()
     postprocess = PostProcess()
 
     detr_sd = torch.hub.load_state_dict_from_url(
@@ -137,17 +137,24 @@ def main(args):
         for samples, targets in train_loader:
             samples = [s.to(device) for s in samples]
             targets = [{k: v.to(device) for k, v in t.items()} for t in targets]
-            
             y_hat = backbone(samples)
-            with torch.no_grad():
-                y_tar = backbone_target(samples)
 
-            if args.cos_loss:
-                sim = [torch.ones(y1.shape[-1]).cuda() for y1 in y_hat]
-                loss = sum(criterion2(y1, y2, s) for y1, y2, s in zip(y_hat, y_tar, sim))
+            if epoch < 10:
+                with torch.no_grad():
+                    y_tar = backbone_target(samples)
+
+                if args.cos_loss:
+                    sim = [torch.ones(y1.shape[-1]).cuda() for y1 in y_hat]
+                    loss = sum(criterion2(y1, y2, s) for y1, y2, s in zip(y_hat, y_tar, sim))
+                else:
+                    loss = sum(criterion2(y1, y2) for y1, y2 in zip(y_hat, y_tar))
             else:
-                loss = sum(criterion2(y1, y2) for y1, y2 in zip(y_hat, y_tar))
-
+                y_hat = interpreter(y_hat)
+                y_hat = {'pred_logits': y_hat[0], 'pred_boxes': y_hat[1]}
+                
+                loss_dict = criterion1(y_hat, targets)
+                weight_dict = criterion1.weight_dict
+                loss = sum(loss_dict[k] * weight_dict[k] for k in loss_dict.keys() if k in weight_dict)
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
