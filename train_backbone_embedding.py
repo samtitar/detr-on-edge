@@ -160,8 +160,9 @@ def main(args):
             optimizer.step()
 
             if next_log < 1:
-                y_hat = interpreter(y_hat)
-                y_hat = {'pred_logits': y_hat[0], 'pred_boxes': y_hat[1]}
+                if epoch < 10:
+                    y_hat = interpreter(y_hat)
+                    y_hat = {'pred_logits': y_hat[0], 'pred_boxes': y_hat[1]}
                 
                 loss_dict = criterion1(y_hat, targets)
                 weight_dict = criterion1.weight_dict
