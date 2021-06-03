@@ -1,5 +1,6 @@
 #!venv/bin/python3
 
+import time
 import argparse
 import numpy as np
 from mpi4py import MPI
@@ -7,37 +8,44 @@ from mpi4py import MPI
 BUFF_SIZE = 1024000
 
 def build_onnx_trt(model_path):
+    import torch
     import tensorrt as trt
 
     TRT_LOGGER = trt.Logger(trt.Logger.VERBOSE)
-    
+    EXPLICIT_BATCH = 1 << (int)(trt.NetworkDefinitionCreationFlag.EXPLICIT_BATCH)
+
     builder = trt.Builder(TRT_LOGGER)
-    network = builder.create_network()
+    network = builder.create_network(EXPLICIT_BATCH)
     parser = trt.OnnxParser(network, TRT_LOGGER)
+
+    print('Parsing onnx file')
+    with open(model_path, 'rb') as model:
+        if not parser.parse(model.read()):
+            for error in range(parser.num_errors):
+                print(parser.get_error(error))
     
-    builder.max_workspace_size = 1 << 30
-    builder.max_batch_size = 1
+    print('Setting configuration')
+    config = builder.create_builder_config()
+    config.max_workspace_size = 1 << 20
 
-    with open(model_path, 'rb') as f:
-        parser.parse(f.read())
+    print('Setting optimizaiton profile')
+    profile = builder.create_optimization_profile()
+    # profile.set_shape('image', (1, 3, 224, 224), (1, 3, 224, 224), (1, 3, 224, 224))
+    profile.set_shape('vector', (1, 2048, 7, 7), (1, 2048, 7, 7), (1, 2048, 7, 7))
+    config.add_optimization_profile(profile)
 
-    last_layer = network.get_layer(network.num_layers - 1)
-    network.mark_output(last_layer.get_output(0))
-
-    engine = builder.build_cuda_engine(network)
+    print('Building engine')
+    engine = builder.build_engine(network, config)
     context = engine.create_execution_context()
+    print('Engine built')
 
     def execute_trt(data):
-        for binding in engine:
-            if engine.binding_is_input(binding):
-                input_shape = engine.get_binding_shape(binding)
-                input_size = trt.volume(input_shape) * engine.max_batch_size * np.dtype(np.float32).itemsize
-                device_input = cuda.mem_alloc(input_size)
-            else:
-                output_shape = engine.get_binding_shape(binding)
-                host_output = cuda.pagelocked_empty(trt.volume(output_shape) * engine.max_batch_size, dtype=np.float32)
-                device_output = cuda.mem_alloc(host_output.nbytes)
-    
+        outputs = [torch.zeros((1, 100, 92), device="cuda:0"),
+                   torch.zeros((1, 100, 4), device="cuda:0")]
+        bindings = [i.data_ptr() for i in data] + [o.data_ptr() for o in outputs]
+        context.execute_v2(bindings)
+
+        return outputs
     return execute_trt
 
 def build_onnx_cud(model_path):
@@ -76,6 +84,7 @@ if __name__ == '__main__':
         if args.mode == 0:
             # Get features from input
             data = np.zeros((1, 3, 224, 224)).astype(np.float32)
+            stime = time.time()
             data = model(data)
 
             # Send features to remote
