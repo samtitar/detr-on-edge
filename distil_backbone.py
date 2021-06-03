@@ -33,11 +33,11 @@ def get_args():
     parser.add_argument('--coco-path', type=str)
     # parser.add_argument('--remove_difficult', action='store_true')
 
-    parser.add_argument('--out-dir', default='')
+    # parser.add_argument('--out-dir', default='')
     parser.add_argument('--device', default='cuda')
-    parser.add_argument('--seed', default=42, type=int)
+    # parser.add_argument('--seed', default=42, type=int)
 
-    parser.add_argument('--eval', action='store_true')
+    # parser.add_argument('--eval', action='store_true')
     parser.add_argument('--num-workers', default=2, type=int)
 
     parser.add_argument('--set-cost-class', default=1, type=float)
@@ -139,30 +139,22 @@ def main(args):
             targets = [{k: v.to(device) for k, v in t.items()} for t in targets]
             y_hat = backbone(samples)
 
-            if epoch < 10:
-                with torch.no_grad():
-                    y_tar = backbone_target(samples)
+            with torch.no_grad():
+                y_tar = backbone_target(samples)
 
-                if args.cos_loss:
-                    sim = [torch.ones(y1.shape[-1]).cuda() for y1 in y_hat]
-                    loss = sum(criterion2(y1, y2, s) for y1, y2, s in zip(y_hat, y_tar, sim))
-                else:
-                    loss = sum(criterion2(y1, y2) for y1, y2 in zip(y_hat, y_tar))
+            if args.cos_loss:
+                sim = [torch.ones(y1.shape[-1]).cuda() for y1 in y_hat]
+                loss = sum(criterion2(y1, y2, s) for y1, y2, s in zip(y_hat, y_tar, sim))
             else:
-                y_hat = interpreter(y_hat)
-                y_hat = {'pred_logits': y_hat[0], 'pred_boxes': y_hat[1]}
-                
-                loss_dict = criterion1(y_hat, targets)
-                weight_dict = criterion1.weight_dict
-                loss = sum(loss_dict[k] * weight_dict[k] for k in loss_dict.keys() if k in weight_dict)
+                loss = sum(criterion2(y1, y2) for y1, y2 in zip(y_hat, y_tar))
+
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
 
             if next_log < 1:
-                if epoch < 10:
-                    y_hat = interpreter(y_hat)
-                    y_hat = {'pred_logits': y_hat[0], 'pred_boxes': y_hat[1]}
+                y_hat = interpreter(y_hat)
+                y_hat = {'pred_logits': y_hat[0], 'pred_boxes': y_hat[1]}
                 
                 loss_dict = criterion1(y_hat, targets)
                 weight_dict = criterion1.weight_dict
