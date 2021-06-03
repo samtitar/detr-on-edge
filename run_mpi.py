@@ -7,7 +7,7 @@ from mpi4py import MPI
 
 BUFF_SIZE = 1024000
 
-def build_onnx_trt(model_path):
+def build_onnx_trt(model_path, mode=0):
     import torch
     import tensorrt as trt
 
@@ -30,8 +30,11 @@ def build_onnx_trt(model_path):
 
     print('Setting optimizaiton profile')
     profile = builder.create_optimization_profile()
-    # profile.set_shape('image', (1, 3, 224, 224), (1, 3, 224, 224), (1, 3, 224, 224))
-    profile.set_shape('vector', (1, 2048, 7, 7), (1, 2048, 7, 7), (1, 2048, 7, 7))
+
+    if mode == 0:
+        profile.set_shape('image', (1, 3, 224, 224), (1, 3, 224, 224), (1, 3, 224, 224))
+    else:
+        profile.set_shape('vector', (1, 2048, 7, 7), (1, 2048, 7, 7), (1, 2048, 7, 7))
     config.add_optimization_profile(profile)
 
     print('Building engine')
@@ -40,9 +43,14 @@ def build_onnx_trt(model_path):
     print('Engine built')
 
     def execute_trt(data):
-        outputs = [torch.zeros((1, 100, 92), device="cuda:0"),
-                   torch.zeros((1, 100, 4), device="cuda:0")]
-        bindings = [i.data_ptr() for i in data] + [o.data_ptr() for o in outputs]
+        if mode == 0:
+            inputs = [torch.tensort(data, device="cuda:0")]
+            outputs = [torch.zeros((1, 2048, 7, 7), device="cuda:0")]
+        else:
+            inputs = [torch.tensor(data, device="cuda:0")]
+            outputs = [torch.zeros((1, 100, 92), device="cuda:0"),
+                       torch.zeros((1, 100, 4), device="cuda:0")]
+        bindings = [i.data_ptr() for i in inputs] + [o.data_ptr() for o in outputs]
         context.execute_v2(bindings)
 
         return outputs
@@ -63,13 +71,11 @@ def build_onnx_cud(model_path):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    # parser.add_argument('--input', type=str, required=True)
-    # parser.add_argument('--output', type=str, required=True)
     parser.add_argument('--mode', type=int, required=True)
-    parser.add_argument('--onnx-loc', type=str, required=True)
-    parser.add_argument('--onnx-rem', type=str, required=True)
-    parser.add_argument('--runtime-loc', type=str, required=True)
-    parser.add_argument('--runtime-rem', type=str, required=True)
+    parser.add_argument('--path-r0', type=str, required=True)
+    parser.add_argument('--path-r1', type=str, required=True)
+    parser.add_argument('--runtime-r0', type=str, required=True)
+    parser.add_argument('--runtime-r1', type=str, required=True)
     args = parser.parse_args()
 
     comm = MPI.COMM_WORLD
@@ -77,15 +83,18 @@ if __name__ == '__main__':
 
     if rank == 0:
         if args.runtime_loc == 'cud':
-            model = build_onnx_cud(args.onnx_loc)
+            model = build_onnx_cud(args.path_r0)
         if args.runtime_loc == 'trt':
-            model = build_onnx_trt(args.onnx_loc)
+            model = build_onnx_trt(args.path_r0)
         
+        # Mode=0: run backbone on r0
         if args.mode == 0:
             # Get features from input
             data = np.zeros((1, 3, 224, 224)).astype(np.float32)
+
             stime = time.time()
             data = model(data)
+            print(f'Backbone time: {time.time() - stime}')
 
             # Send features to remote
             req = comm.isend(data, dest=1, tag=11)
@@ -105,7 +114,9 @@ if __name__ == '__main__':
             data = req.wait()
 
             # Get results from features
+            stime = time.time()
             data = model(data[0])
+            print(f'Transformer time: {time.time() - stime}')
     elif rank == 1:
         if args.runtime_rem == 'cud':
             model = build_onnx_cud(args.onnx_rem)
@@ -118,9 +129,13 @@ if __name__ == '__main__':
 
         # Get features or results from data or features
         if args.mode == 0:
+            stime = time.time()
             data = model(data[0])
+            print(f'Backbone time: {time.time() - stime}')
         elif args.mode == 1:
+            stime = time.time()
             data = model(data)
+            print(f'Transformer time: {time.time() - stime}')
 
         # Send features or results to remote
         req =  comm.isend(data, dest=0, tag=11)
